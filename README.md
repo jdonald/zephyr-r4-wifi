@@ -1,23 +1,28 @@
-# zephyr-lld
+# zephyr-r4-wifi
 
 A minimal [Zephyr RTOS](https://zephyrproject.org/) project for the
-**Arduino Uno R4 Minima** that blinks the built-in LED in the
-"Shave and a Haircut, Two Bits" (5-and-2 knock) rhythm on each reset.
-
-> **Note:** The original intent was to target the Arduino Uno R3
-> (ATmega328P), but Zephyr does not support the AVR architecture. The
-> Arduino Uno R4 Minima (Renesas RA4M1, ARM Cortex-M4) is the closest
-> officially-supported Arduino Uno board.
+**Arduino Uno R4 WiFi** (Renesas RA4M1, ARM Cortex-M4).
 
 ## What It Does
 
-On power-up or reset the LED on pin D13 plays the classic seven-knock
-pattern, then stays off:
+On each reset:
 
-```
-  "Shave  and-a  hair - cut"    (pause)    "two    bits"
-   *      **     *     *                    *      *
-```
+1. **Shave and a Haircut** — blinks the built-in LED on pin D13 in the classic
+   seven-knock pattern, then goes dark.
+
+2. **Firmware DevX scroller** — loops forever on the 12×8 LED matrix,
+   scrolling four lines downward:
+
+   ```
+   FIRM
+   WARE
+   DEV
+   X
+   ```
+
+   Each word drifts down through the display.  When **X** appears it fills
+   the entire 12×8 matrix as a large diagonal glyph and holds for ~3 seconds
+   before the sequence resumes from FIRM.
 
 ## Prerequisites
 
@@ -82,13 +87,13 @@ export ZEPHYR_BASE=~/zephyrproject/zephyr
 ### Default Build (ld.bfd)
 
 ```bash
-west build -b arduino_uno_r4@minima
+west build -b arduino_uno_r4/wifi
 ```
 
 or, with an explicit build directory:
 
 ```bash
-west build -b arduino_uno_r4@minima -d build-bfd
+west build -b arduino_uno_r4/wifi -d build-bfd
 ```
 
 ### Build with lld Linker (Experimental)
@@ -117,7 +122,7 @@ To use it:
    ```bash
    export ZEPHYR_TOOLCHAIN_VARIANT=zephyr-lld
    export TOOLCHAIN_ROOT=$(pwd)   # must point to this repository root
-   west build -b arduino_uno_r4@minima -d build-lld
+   west build -b arduino_uno_r4/wifi -d build-lld
    ```
 
 ### Verifying the Linker Knob
@@ -138,7 +143,7 @@ grep -o '\-fuse-ld=[a-z]*' build-lld/build.ninja | sort | uniq -c
 
 ## Flashing
 
-With the Arduino Uno R4 Minima connected via USB:
+With the Arduino Uno R4 WiFi connected via USB:
 
 ```bash
 west flash
@@ -149,9 +154,33 @@ install a udev rule on Linux for USB access (see
 [Zephyr's docs](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)).
 
 After flashing, press the reset button to see the "Shave and a Haircut"
-pattern on the built-in LED.
+pattern on D13, followed by the Firmware DevX scroller on the LED matrix.
 
-## How the Linker Variant Works
+## LED Matrix Details
+
+The Arduino Uno R4 WiFi has a **12×8 LED matrix** driven by an
+**IS31FL3741A** LED controller over I2C.
+
+In `src/main.c` the matrix is accessed through Zephyr's `led` subsystem
+(`CONFIG_IS31FL3741=y`).  LED indices are mapped row-major:
+
+```
+idx = row * 12 + col   (row 0–7, col 0–11)
+```
+
+If the matrix renders mirrored or transposed on your board revision, adjust
+`matrix_led_idx()` in `src/main.c`.
+
+### Font
+
+Each alphanumeric character uses a **3×5** pixel glyph (3 columns wide, 5
+rows tall) with no inter-character gap.  Four-character words (FIRM, WARE)
+fill all 12 columns exactly; three-character words (DEV) are centred with a
+2-pixel left margin.
+
+The large X glyph spans the full **12×8** display as two crossing diagonals.
+
+## How the lld Variant Works
 
 The Zephyr SDK's default toolchain (`zephyr`) hardcodes `set(LINKER ld)` in
 its CMake configuration, which cannot be overridden via `-D` from the command
@@ -171,7 +200,7 @@ picks up the overridden linker configuration.
 ## Known lld Linker Issues
 
 As of Zephyr 4.x and LLVM lld 18.x, linking a Zephyr firmware image for the
-Arduino Uno R4 Minima with `ld.lld` **does not fully succeed**. The
+Arduino Uno R4 WiFi with `ld.lld` **does not fully succeed**. The
 CMake configuration and compilation complete, and `build.ninja` correctly
 contains `-fuse-ld=lld` in all link steps. However, the actual link step
 fails with the following categories of errors:
@@ -216,9 +245,9 @@ differently, resulting in address space layout errors.
 ```
 .
 ├── CMakeLists.txt                          # Zephyr application build file
-├── prj.conf                                # Kconfig: enables GPIO driver
+├── prj.conf                                # Kconfig: GPIO, I2C, LED, IS31FL3741
 ├── src/
-│   └── main.c                              # LED blink pattern
+│   └── main.c                              # Shave & Haircut + LED matrix scroller
 ├── cmake/
 │   ├── toolchain/zephyr-lld/
 │   │   ├── generic.cmake                   # Custom variant: SDK + lld override
